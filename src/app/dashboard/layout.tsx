@@ -7,7 +7,6 @@ import {
   CalendarCheck,
   Calendar,
   Users,
-  BarChart3,
   Upload,
   Settings,
   LogOut,
@@ -15,17 +14,18 @@ import {
   Menu,
   X,
   ChevronRight,
+  TrendingUp,
+  FileText,
 } from "lucide-react";
 import { useState } from "react";
 
-// Per-intern performance lives on the intern profile (click an intern on the
-// Interns board) — the standalone Performance page was removed from the menu.
 const navigation = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { name: "Attendance", href: "/dashboard/attendance", icon: CalendarCheck },
   { name: "Leaves", href: "/dashboard/leaves", icon: Calendar },
   { name: "Interns", href: "/dashboard/interns", icon: Users },
-  { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
+  { name: "Performance", href: "/dashboard/performance", icon: TrendingUp },
+  { name: "Reports", href: "/dashboard/reports", icon: FileText },
   { name: "Import", href: "/dashboard/import", icon: Upload },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];

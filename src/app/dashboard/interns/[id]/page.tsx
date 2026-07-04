@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
+import { adToBS, BS_MONTHS } from "@/lib/nepali-date";
 
 interface PerformanceData {
   intern: {
@@ -26,6 +27,13 @@ interface PerformanceData {
     shift: string;
     joinDate: string | null;
     supervisor: string | null;
+  };
+  nepaliDate: {
+    today: string;
+    todayFull: string;
+    currentMonth: string;
+    attendanceStartBS: string;
+    attendanceStartAD: string;
   };
   summary: {
     totalCalls: number;
@@ -46,6 +54,7 @@ interface PerformanceData {
     tours: number;
     hours: number;
     daysWorked: number;
+    nepaliMonth: string;
   };
   attendance: {
     totalDays: number;
@@ -79,6 +88,8 @@ interface PerformanceData {
   kpi: { target: number; daysAboveTarget: number; achievement: number };
   dailyTrend: Array<{
     date: string;
+    nepaliDate: string;
+    nepaliDay: string;
     callsMade: number;
     callsReceived: number;
     interested: number;
@@ -86,6 +97,7 @@ interface PerformanceData {
   }>;
   weeklyTrend: Array<{
     week: string;
+    nepaliLabel: string;
     calls: number;
     received: number;
     interested: number;
@@ -175,7 +187,7 @@ export default function InternProfilePage() {
               </span>
             </div>
             <p className="text-muted-foreground text-sm">
-              {intern.internId} · {intern.role} · {intern.email || "No email"}
+              {intern.internId} · {intern.role} · {data.nepaliDate.todayFull}
             </p>
           </div>
         </div>
@@ -227,13 +239,18 @@ export default function InternProfilePage() {
       </div>
 
       {/* This Month Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="Calls This Month" value={thisMonth.calls.toLocaleString()} />
-        <MiniStat label="Received" value={thisMonth.received.toLocaleString()} />
-        <MiniStat label="Interested" value={`${thisMonth.interested}`} />
-        <MiniStat label="Tours" value={`${thisMonth.tours}`} />
-        <MiniStat label="Hours" value={`${thisMonth.hours}h`} />
-        <MiniStat label="Days Worked" value={`${thisMonth.daysWorked}`} />
+      <div>
+        <p className="text-sm font-medium text-muted-foreground mb-2">
+          This Month — {data.thisMonth.nepaliMonth}
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <MiniStat label="Calls This Month" value={thisMonth.calls.toLocaleString()} />
+          <MiniStat label="Received" value={thisMonth.received.toLocaleString()} />
+          <MiniStat label="Interested" value={`${thisMonth.interested}`} />
+          <MiniStat label="Tours" value={`${thisMonth.tours}`} />
+          <MiniStat label="Hours" value={`${thisMonth.hours}h`} />
+          <MiniStat label="Days Worked" value={`${thisMonth.daysWorked}`} />
+        </div>
       </div>
 
       {/* KPI Achievement Bar */}
@@ -278,10 +295,10 @@ export default function InternProfilePage() {
 
         {tab === "overview" && (
           <div className="p-6">
-            <h4 className="font-medium text-sm mb-4">Daily Calls (Last 14 Sessions)</h4>
+            <h4 className="font-medium text-sm mb-4">Daily Calls (Last 14 Sessions) — Nepali Date</h4>
             <div className="flex items-end gap-1 h-40">
               {dailyTrend.map((d) => (
-                <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.nepaliDay} (${d.date})`}>
                   <span className="text-[10px] text-muted-foreground">{d.callsMade}</span>
                   <div
                     className={`w-full rounded-t transition-all ${
@@ -289,13 +306,13 @@ export default function InternProfilePage() {
                     }`}
                     style={{ height: `${(d.callsMade / maxDailyCalls) * 100}%`, minHeight: "4px" }}
                   />
-                  <span className="text-[9px] text-muted-foreground rotate-[-45deg] w-8 text-center">
-                    {d.date.slice(5)}
+                  <span className="text-[9px] text-muted-foreground rotate-[-45deg] w-10 text-center">
+                    {d.nepaliDay}
                   </span>
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
+            <div className="flex items-center gap-4 mt-6 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-3 rounded bg-emerald-400" />
                 <span>Above target ({kpi.target}+)</span>
@@ -306,11 +323,11 @@ export default function InternProfilePage() {
               </div>
             </div>
 
-            <h4 className="font-medium text-sm mt-8 mb-4">Weekly Summary</h4>
+            <h4 className="font-medium text-sm mt-8 mb-4">Weekly Summary (Nepali Weeks)</h4>
             <div className="space-y-2">
               {weeklyTrend.map((w) => (
                 <div key={w.week} className="flex items-center gap-4">
-                  <span className="text-xs text-muted-foreground w-20">W/{w.week.slice(5)}</span>
+                  <span className="text-xs text-muted-foreground w-44 truncate" title={w.nepaliLabel}>{w.nepaliLabel}</span>
                   <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden relative">
                     <div
                       className="h-full bg-accent rounded-full"
@@ -330,7 +347,7 @@ export default function InternProfilePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Date</th>
+                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">Date (B.S.)</th>
                   <th className="text-center px-4 py-3 font-medium text-muted-foreground">Made</th>
                   <th className="text-center px-4 py-3 font-medium text-muted-foreground">Received</th>
                   <th className="text-center px-4 py-3 font-medium text-muted-foreground">Interested</th>
@@ -341,28 +358,36 @@ export default function InternProfilePage() {
                 </tr>
               </thead>
               <tbody>
-                {recentCallLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-border/50 hover:bg-muted/30">
-                    <td className="px-6 py-3">{log.date.split("T")[0]}</td>
-                    <td className="px-4 py-3 text-center font-medium">{log.callsMade}</td>
-                    <td className="px-4 py-3 text-center">{log.callsReceived}</td>
-                    <td className="px-4 py-3 text-center">
-                      {log.interestedVisit > 0 ? (
-                        <span className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded">{log.interestedVisit}</span>
-                      ) : "0"}
-                    </td>
-                    <td className="px-4 py-3 text-center">{log.toursMade}</td>
-                    <td className="px-4 py-3 text-center">{log.hoursWorked}h</td>
-                    <td className="px-4 py-3 text-center">
-                      {log.callsMade >= kpi.target ? (
-                        <span className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded">Met</span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">Below</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px] truncate">{log.remarks || "—"}</td>
-                  </tr>
-                ))}
+                {recentCallLogs.map((log) => {
+                  const logDate = new Date(log.date);
+                  const bs = adToBS(logDate);
+                  const nepaliStr = `${bs.day} ${BS_MONTHS[bs.month - 1]}`;
+                  return (
+                    <tr key={log.id} className="border-b border-border/50 hover:bg-muted/30">
+                      <td className="px-6 py-3">
+                        <span className="font-medium">{nepaliStr}</span>
+                        <span className="text-xs text-muted-foreground ml-2">({log.date.split("T")[0]})</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-medium">{log.callsMade}</td>
+                      <td className="px-4 py-3 text-center">{log.callsReceived}</td>
+                      <td className="px-4 py-3 text-center">
+                        {log.interestedVisit > 0 ? (
+                          <span className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded">{log.interestedVisit}</span>
+                        ) : "0"}
+                      </td>
+                      <td className="px-4 py-3 text-center">{log.toursMade}</td>
+                      <td className="px-4 py-3 text-center">{log.hoursWorked}h</td>
+                      <td className="px-4 py-3 text-center">
+                        {log.callsMade >= kpi.target ? (
+                          <span className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded">Met</span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">Below</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px] truncate">{log.remarks || "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
