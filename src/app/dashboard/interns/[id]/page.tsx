@@ -52,7 +52,28 @@ interface PerformanceData {
     present: number;
     absent: number;
     late: number;
+    halfDays: number;
     rate: number;
+    monthRate: number;
+  };
+  category: "RED" | "YELLOW" | "GREEN";
+  reasons: string[];
+  flags: string[];
+  compLeave: {
+    earned: number;
+    used: number;
+    balance: number;
+    earningSaturdays: string[];
+  };
+  saturday: { rostered: number; present: number; dates: string[] };
+  leaveDays: {
+    AL: number;
+    CL: number;
+    UL: number;
+    HD: number;
+    total: number;
+    thisMonth: number;
+    unapprovedThisMonth: number;
   };
   ranking: { rank: number; total: number };
   kpi: { target: number; daysAboveTarget: number; achievement: number };
@@ -122,9 +143,15 @@ export default function InternProfilePage() {
     );
   }
 
-  const { intern, summary, thisMonth, attendance, ranking, kpi, dailyTrend, weeklyTrend, recentCallLogs } = data;
+  const { intern, summary, thisMonth, attendance, ranking, kpi, dailyTrend, weeklyTrend, recentCallLogs, category, reasons, flags, compLeave, saturday, leaveDays } = data;
   const maxDailyCalls = Math.max(...dailyTrend.map((d) => d.callsMade), 1);
   const maxWeeklyCalls = Math.max(...weeklyTrend.map((d) => d.calls), 1);
+
+  const categoryStyle = {
+    RED: { badge: "bg-red-100 text-red-700", dot: "bg-red-500", label: "Needs Action", banner: "bg-red-50 border-red-200 text-red-800" },
+    YELLOW: { badge: "bg-amber-100 text-amber-700", dot: "bg-amber-400", label: "Watch", banner: "bg-amber-50 border-amber-200 text-amber-800" },
+    GREEN: { badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500", label: "On Track", banner: "bg-emerald-50 border-emerald-200 text-emerald-800" },
+  }[category];
 
   return (
     <div className="space-y-6">
@@ -140,7 +167,13 @@ export default function InternProfilePage() {
             {intern.name.split(" ").map((n) => n[0]).join("")}
           </div>
           <div>
-            <h1 className="text-2xl font-bold">{intern.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">{intern.name}</h1>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${categoryStyle.badge}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${categoryStyle.dot}`} />
+                {categoryStyle.label}
+              </span>
+            </div>
             <p className="text-muted-foreground text-sm">
               {intern.internId} · {intern.role} · {intern.email || "No email"}
             </p>
@@ -157,6 +190,23 @@ export default function InternProfilePage() {
         </div>
       </div>
 
+      {/* Status reasons + leave-pattern flags */}
+      {(reasons.length > 0 || flags.length > 0) && (
+        <div className={`border rounded-xl p-4 ${categoryStyle.banner}`}>
+          <p className="text-xs font-semibold uppercase tracking-wide mb-1.5">
+            {category === "GREEN" ? "Status" : "Attention needed"}
+          </p>
+          <ul className="text-sm space-y-1">
+            {[...reasons, ...flags.filter((f) => !reasons.includes(f))].map((r) => (
+              <li key={r} className="flex items-start gap-2">
+                <span className="mt-1.5 w-1 h-1 rounded-full bg-current shrink-0" />
+                {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* KPI Overview Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard label="Total Calls" value={summary.totalCalls.toLocaleString()} icon={Phone} />
@@ -164,6 +214,16 @@ export default function InternProfilePage() {
         <MetricCard label="Connection Rate" value={`${summary.connectionRate}%`} icon={TrendingUp} />
         <MetricCard label="Conversion Rate" value={`${summary.conversionRate}%`} icon={Target} />
         <MetricCard label="Attendance" value={`${attendance.rate}%`} icon={Calendar} />
+      </div>
+
+      {/* Attendance & comp-leave snapshot */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <MiniStat label="Days Present" value={`${attendance.present}`} />
+        <MiniStat label="Saturdays Rostered" value={`${saturday.rostered}`} />
+        <MiniStat label="Saturdays Present" value={`${saturday.present}`} />
+        <MiniStat label="Comp Leave Earned" value={`${compLeave.earned}`} />
+        <MiniStat label="Comp Leave Used" value={`${compLeave.used}`} />
+        <MiniStat label="Comp Leave Remaining" value={`${compLeave.balance}`} />
       </div>
 
       {/* This Month Summary */}
@@ -310,7 +370,7 @@ export default function InternProfilePage() {
 
         {tab === "attendance" && (
           <div className="p-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
               <div className="p-4 bg-emerald-50 rounded-lg">
                 <p className="text-xs text-emerald-600 font-medium">Present</p>
                 <p className="text-2xl font-bold text-emerald-700">{attendance.present}</p>
@@ -323,10 +383,54 @@ export default function InternProfilePage() {
                 <p className="text-xs text-amber-600 font-medium">Late</p>
                 <p className="text-2xl font-bold text-amber-700">{attendance.late}</p>
               </div>
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="text-xs text-muted-foreground font-medium">Rate</p>
-                <p className="text-2xl font-bold">{attendance.rate}%</p>
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <p className="text-xs text-blue-600 font-medium">Half Days</p>
+                <p className="text-2xl font-bold text-blue-700">{attendance.halfDays}</p>
               </div>
+              <div className="p-4 bg-muted rounded-lg">
+                <p className="text-xs text-muted-foreground font-medium">Rate (lifetime / month)</p>
+                <p className="text-2xl font-bold">
+                  {attendance.rate}% <span className="text-sm font-medium text-muted-foreground">/ {attendance.monthRate}%</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Saturday duty & comp leave */}
+            <h4 className="font-medium text-sm mb-3">Saturday Duty & Compensation Leave</h4>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+              <MiniStat label="Saturdays Rostered" value={`${saturday.rostered}`} />
+              <MiniStat label="Saturdays Present" value={`${saturday.present}`} />
+              <MiniStat label="CL Earned" value={`${compLeave.earned}`} />
+              <MiniStat label="CL Used" value={`${compLeave.used}`} />
+              <MiniStat label="CL Remaining" value={`${compLeave.balance}`} />
+            </div>
+            {compLeave.balance < 0 && (
+              <p className="text-xs text-red-600 mb-4">
+                ⚠ Comp leave overspent — {compLeave.used} used against {compLeave.earned} earned.
+              </p>
+            )}
+            {saturday.dates.length > 0 && (
+              <div className="mb-6">
+                <p className="text-xs text-muted-foreground mb-2">Saturdays worked (comp leave earned):</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {saturday.dates.map((d) => (
+                    <span key={d} className="text-xs font-mono px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded">
+                      {d}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Leave breakdown */}
+            <h4 className="font-medium text-sm mb-3">Leave Days</h4>
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+              <MiniStat label="Approved (AL)" value={`${leaveDays.AL}`} />
+              <MiniStat label="Comp Leave (CL)" value={`${leaveDays.CL}`} />
+              <MiniStat label="Unapproved (UL)" value={`${leaveDays.UL}`} />
+              <MiniStat label="Half Day (HD)" value={`${leaveDays.HD}`} />
+              <MiniStat label="Total Leave Days" value={`${leaveDays.total}`} />
+              <MiniStat label="This Month" value={`${leaveDays.thisMonth}`} />
             </div>
 
             {data.leaveRequests.length > 0 && (

@@ -2,54 +2,72 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Plus, Mail, Phone, Clock, ExternalLink } from "lucide-react";
+import { Search, Plus, AlertTriangle, ExternalLink } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 
-interface Intern {
+interface InternStatus {
   id: string;
   internId: string;
   name: string;
-  email: string | null;
-  phone: string | null;
-  role: string;
   team: string;
-  shift: string;
-  joinDate: string | null;
-  supervisor: string | null;
-  active: boolean;
+  category: "RED" | "YELLOW" | "GREEN";
+  reasons: string[];
+  flags: string[];
+  attendanceRate: number;
+  monthCalls: number;
+  avgCallsPerDay: number;
+  daysWorked: number;
+  leaveCount: number;
+  unapprovedLeaves: number;
+  clEarned: number;
+  clUsed: number;
+  clBalance: number;
 }
+
+interface StatusResponse {
+  month: number;
+  year: number;
+  targets: { minCallsPerDay: number; minAttendanceRate: number };
+  summary: { red: number; yellow: number; green: number };
+  interns: InternStatus[];
+}
+
+const CATEGORY_STYLE = {
+  RED: { dot: "bg-red-500", badge: "bg-red-100 text-red-700", label: "Needs Action" },
+  YELLOW: { dot: "bg-amber-400", badge: "bg-amber-100 text-amber-700", label: "Watch" },
+  GREEN: { dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700", label: "On Track" },
+} as const;
 
 export default function InternsPage() {
   const router = useRouter();
-  const [interns, setInterns] = useState<Intern[]>([]);
+  const [data, setData] = useState<StatusResponse | null>(null);
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState<"all" | "ALPHA" | "CALL_CENTER">("all");
-  const [selectedIntern, setSelectedIntern] = useState<Intern | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "RED" | "YELLOW" | "GREEN">("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchApi<Intern[]>("/interns").then((d) => {
-      setInterns(d);
+    fetchApi<StatusResponse>("/interns/status").then((d) => {
+      setData(d);
       setLoading(false);
     });
   }, []);
 
+  const interns = data?.interns ?? [];
+
   const filtered = interns.filter((i) => {
     const matchesSearch =
       i.name.toLowerCase().includes(search.toLowerCase()) ||
-      i.internId.toLowerCase().includes(search.toLowerCase()) ||
-      (i.email && i.email.toLowerCase().includes(search.toLowerCase()));
+      i.internId.toLowerCase().includes(search.toLowerCase());
     const matchesTeam =
       teamFilter === "all" ||
       i.team === teamFilter ||
       (teamFilter === "CALL_CENTER" && i.team === "EA");
-    return matchesSearch && matchesTeam;
+    const matchesCategory = categoryFilter === "all" || i.category === categoryFilter;
+    return matchesSearch && matchesTeam && matchesCategory;
   });
 
-  const alphaCount = interns.filter((i) => i.team === "ALPHA").length;
-  const ccCount = interns.filter((i) => i.team === "CALL_CENTER" || i.team === "EA").length;
-
-  if (loading) {
+  if (loading || !data) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-900 rounded-full animate-spin" />
@@ -61,15 +79,45 @@ export default function InternsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Intern Profiles</h1>
+          <h1 className="text-2xl font-bold">Intern Status Board</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {interns.length} active — {alphaCount} Alpha · {ccCount} Call Center
+            {interns.length} active — KPI: {data.targets.minCallsPerDay} calls/day ·{" "}
+            {data.targets.minAttendanceRate}% attendance
           </p>
         </div>
         <button className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors">
           <Plus size={14} />
           Add Intern
         </button>
+      </div>
+
+      {/* RAG summary cards — click to filter */}
+      <div className="grid grid-cols-3 gap-4">
+        {(["RED", "YELLOW", "GREEN"] as const).map((cat) => {
+          const count =
+            cat === "RED" ? data.summary.red : cat === "YELLOW" ? data.summary.yellow : data.summary.green;
+          const active = categoryFilter === cat;
+          return (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(active ? "all" : cat)}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                active ? "border-foreground shadow-sm bg-background" : "border-border bg-background hover:border-neutral-400"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${CATEGORY_STYLE[cat].dot}`} />
+                <span className="text-xs font-medium text-muted-foreground">
+                  {CATEGORY_STYLE[cat].label}
+                </span>
+              </div>
+              <p className="text-2xl font-bold mt-1">{count}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {cat === "RED" ? "Take action now" : cat === "YELLOW" ? "Keep an eye on" : "Going well"}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-3">
@@ -79,7 +127,7 @@ export default function InternsPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, ID, or email..."
+            placeholder="Search intern by name or ID..."
             className="w-full pl-10 pr-4 py-2.5 border border-border rounded-lg text-sm bg-background"
           />
         </div>
@@ -87,7 +135,7 @@ export default function InternsPage() {
           {([["all", "All"], ["ALPHA", "Alpha"], ["CALL_CENTER", "Call Center"]] as const).map(([key, label]) => (
             <button
               key={key}
-              onClick={() => setTeamFilter(key as any)}
+              onClick={() => setTeamFilter(key as typeof teamFilter)}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 teamFilter === key ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -98,30 +146,41 @@ export default function InternsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="bg-background border border-border rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left px-6 py-3 font-medium text-muted-foreground">ID</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Team</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Email</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((intern) => (
+      <div className="bg-background border border-border rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-6 py-3 font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Team</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Attendance</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Avg Calls/Day</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Leaves</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">CL Balance</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Why</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((intern) => {
+                const style = CATEGORY_STYLE[intern.category];
+                return (
                   <tr
                     key={intern.id}
-                    onClick={() => setSelectedIntern(intern)}
-                    className={`border-b border-border/50 cursor-pointer transition-colors ${
-                      selectedIntern?.id === intern.id ? "bg-muted" : "hover:bg-muted/30"
-                    }`}
+                    onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
+                    className="border-b border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
                   >
-                    <td className="px-6 py-3 font-mono text-xs text-muted-foreground">{intern.internId}</td>
-                    <td className="px-4 py-3 font-medium">{intern.name}</td>
+                    <td className="px-6 py-3">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded ${style.badge}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                        {style.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{intern.name}</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">{intern.internId}</p>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${
                         intern.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
@@ -129,100 +188,43 @@ export default function InternsPage() {
                         {intern.team === "ALPHA" ? "Alpha" : intern.team === "EA" ? "EA" : "Call Center"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{intern.email || "—"}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        intern.role === "SUPERVISOR" ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-600"
-                      }`}>
-                        {intern.role}
+                    <td className="px-4 py-3 text-center font-medium">{intern.attendanceRate}%</td>
+                    <td className="px-4 py-3 text-center">{intern.avgCallsPerDay}</td>
+                    <td className="px-4 py-3 text-center">
+                      {intern.leaveCount}
+                      {intern.unapprovedLeaves > 0 && (
+                        <span className="ml-1 text-[10px] text-red-600 font-medium">
+                          ({intern.unapprovedLeaves} unappr.)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={intern.clBalance < 0 ? "text-red-600 font-medium" : ""}>
+                        {intern.clBalance}
                       </span>
                     </td>
+                    <td className="px-4 py-3 max-w-[260px]">
+                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        {intern.category !== "GREEN" && (
+                          <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+                        )}
+                        <span className="truncate" title={[...intern.reasons, ...intern.flags].join(" · ")}>
+                          {[...intern.reasons, ...intern.flags].join(" · ")}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <ExternalLink size={14} className="text-muted-foreground inline" />
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <div className="p-8 text-center text-muted-foreground text-sm">No interns match your search</div>
-            )}
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-
-        <div className="lg:col-span-1">
-          {selectedIntern ? (
-            <div className="bg-background border border-border rounded-xl p-6 sticky top-6">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 rounded-full bg-accent text-accent-foreground flex items-center justify-center font-bold">
-                  {selectedIntern.name.split(" ").map((n) => n[0]).join("")}
-                </div>
-                <div>
-                  <p className="font-semibold">{selectedIntern.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="text-xs text-muted-foreground">{selectedIntern.internId}</p>
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                      selectedIntern.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
-                    }`}>
-                      {selectedIntern.team === "ALPHA" ? "Alpha" : "Call Center"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-4">
-                {selectedIntern.email && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <Mail size={14} className="text-muted-foreground" />
-                    <span className="truncate">{selectedIntern.email}</span>
-                  </div>
-                )}
-                {selectedIntern.phone && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <Phone size={14} className="text-muted-foreground" />
-                    <span>{selectedIntern.phone}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-3 text-sm">
-                  <Clock size={14} className="text-muted-foreground" />
-                  <span>{selectedIntern.shift}</span>
-                </div>
-                <hr className="border-border" />
-                <div className="text-sm space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Role</span>
-                    <span className="font-medium">{selectedIntern.role}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Team</span>
-                    <span className="font-medium">{selectedIntern.team === "ALPHA" ? "Alpha" : selectedIntern.team === "EA" ? "EA" : "Call Center"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Joined</span>
-                    <span className="font-medium">{selectedIntern.joinDate?.split("T")[0] || "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Supervisor</span>
-                    <span className="font-medium">{selectedIntern.supervisor || "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status</span>
-                    <span className={`font-medium ${selectedIntern.active ? "text-emerald-600" : "text-red-600"}`}>
-                      {selectedIntern.active ? "Active" : "Inactive"}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => router.push(`/dashboard/interns/${selectedIntern.id}`)}
-                  className="w-full mt-4 px-4 py-2.5 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
-                >
-                  <ExternalLink size={14} />
-                  View Performance
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-background border border-border rounded-xl p-6 text-center text-muted-foreground">
-              <p className="text-sm">Select an intern to view details</p>
-            </div>
-          )}
-        </div>
+        {filtered.length === 0 && (
+          <div className="p-8 text-center text-muted-foreground text-sm">No interns match your search</div>
+        )}
       </div>
     </div>
   );

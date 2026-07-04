@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   CalendarCheck,
-  PhoneCall,
   Calendar,
   Users,
   BarChart3,
@@ -19,10 +18,11 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+// Per-intern performance lives on the intern profile (click an intern on the
+// Interns board) — the standalone Performance page was removed from the menu.
 const navigation = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { name: "Attendance", href: "/dashboard/attendance", icon: CalendarCheck },
-  { name: "Performance", href: "/dashboard/performance", icon: PhoneCall },
   { name: "Leaves", href: "/dashboard/leaves", icon: Calendar },
   { name: "Interns", href: "/dashboard/interns", icon: Users },
   { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },

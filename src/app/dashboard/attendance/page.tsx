@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchApi, postApi } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save } from "lucide-react";
 
 type AttendanceStatus = "P" | "A" | "L" | "HD" | "AL" | "UL" | "CL" | "ND";
 
@@ -63,6 +63,10 @@ export default function AttendancePage() {
   const [preview, setPreview] = useState<InternPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  // Unsaved edits, keyed `${internDbId}|${date}` → new status ("" = clear).
+  // Nothing hits the API until "Save Attendance" is clicked.
+  const [pending, setPending] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const loadData = () => {
     setLoading(true);
@@ -72,7 +76,7 @@ export default function AttendancePage() {
     });
   };
 
-  useEffect(() => { loadData(); }, [month, year]);
+  useEffect(() => { setPending({}); loadData(); }, [month, year]);
 
   const openPreview = (internDbId: string) => {
     setPreviewLoading(true);
@@ -82,17 +86,41 @@ export default function AttendancePage() {
       .finally(() => setPreviewLoading(false));
   };
 
-  const handleStatusChange = async (internDbId: string, date: string, status: string) => {
-    const res = await postApi<{ warning?: string | null }>("/attendance", {
-      internId: internDbId,
-      date,
-      status,
+  // Stage the change locally only — saved in one batch by saveAttendance().
+  const handleStatusChange = (internDbId: string, date: string, status: string) => {
+    setPending((p) => {
+      const key = `${internDbId}|${date}`;
+      const original = data?.grid.find((g) => g.id === internDbId)?.days[date] ?? "";
+      const next = { ...p };
+      if (status === original) delete next[key];
+      else next[key] = status;
+      return next;
     });
-    if (res?.warning) {
-      setWarning(res.warning);
+  };
+
+  const pendingCount = Object.keys(pending).length;
+
+  const saveAttendance = async () => {
+    if (pendingCount === 0 || saving) return;
+    setSaving(true);
+    try {
+      const records = Object.entries(pending).map(([key, status]) => {
+        const [internId, date] = key.split("|");
+        return { internId, date, status };
+      });
+      const res = await postApi<{ warnings?: string[] }>("/attendance/bulk", { records });
+      if (res?.warnings?.length) {
+        setWarning(res.warnings.join(" "));
+        setTimeout(() => setWarning(null), 6000);
+      }
+      setPending({});
+      loadData();
+    } catch {
+      setWarning("Failed to save attendance. Please try again.");
       setTimeout(() => setWarning(null), 5000);
+    } finally {
+      setSaving(false);
     }
-    loadData();
   };
 
   const prevMonth = () => {
@@ -183,7 +211,12 @@ export default function AttendancePage() {
                     </button>
                   </td>
                   {days.map(({ date }) => {
-                    const status = intern.days[date] as AttendanceStatus | undefined;
+                    const key = `${intern.id}|${date}`;
+                    const edited = key in pending;
+                    const status = (edited ? pending[key] : intern.days[date]) as
+                      | AttendanceStatus
+                      | undefined
+                      | "";
                     return (
                       <td key={date} className="px-0.5 py-2 text-center">
                         <select
@@ -191,7 +224,7 @@ export default function AttendancePage() {
                           onChange={(e) => handleStatusChange(intern.id, date, e.target.value)}
                           className={`w-7 h-5 rounded text-[10px] font-medium border appearance-none text-center cursor-pointer ${
                             status ? statusColors[status] : "bg-neutral-50 text-neutral-300 border-neutral-200"
-                          }`}
+                          } ${edited ? "ring-2 ring-blue-400 ring-offset-1" : ""}`}
                         >
                           <option value="">—</option>
                           {(Object.keys(statusColors) as AttendanceStatus[]).map((s) => (
@@ -228,6 +261,34 @@ export default function AttendancePage() {
           </table>
         </div>
       </div>
+
+      {/* Unsaved-changes bar — one bulk API call on Save */}
+      {pendingCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 bg-background border border-border rounded-xl shadow-xl">
+          <span className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{pendingCount}</span> unsaved change{pendingCount > 1 ? "s" : ""}
+          </span>
+          <button
+            onClick={() => setPending({})}
+            disabled={saving}
+            className="px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            Discard
+          </button>
+          <button
+            onClick={saveAttendance}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-1.5 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors disabled:opacity-50"
+          >
+            {saving ? (
+              <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Save size={14} />
+            )}
+            {saving ? "Saving…" : "Save Attendance"}
+          </button>
+        </div>
+      )}
 
       {/* CL-balance warning toast */}
       {warning && (
