@@ -395,6 +395,18 @@ export default function ImportPage() {
               >
                 Clear shown
               </button>
+              <button
+                onClick={commit}
+                disabled={busy || liveCounts.included === 0}
+                className="flex items-center gap-2 px-5 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:bg-neutral-800 transition-colors disabled:opacity-50"
+              >
+                {busy ? (
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Check size={15} />
+                )}
+                Import {liveCounts.included} row{liveCounts.included === 1 ? "" : "s"}
+              </button>
             </div>
           </div>
 
@@ -461,18 +473,6 @@ export default function ImportPage() {
               className="px-4 py-2.5 text-sm font-medium border border-border rounded-lg hover:bg-muted transition-colors"
             >
               Cancel
-            </button>
-            <button
-              onClick={commit}
-              disabled={busy || liveCounts.included === 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:bg-neutral-800 transition-colors disabled:opacity-50"
-            >
-              {busy ? (
-                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              ) : (
-                <Check size={16} />
-              )}
-              Import {liveCounts.included} row{liveCounts.included === 1 ? "" : "s"}
             </button>
           </div>
         </>

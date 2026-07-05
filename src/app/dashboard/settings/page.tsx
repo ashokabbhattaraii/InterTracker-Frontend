@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Save, Bell, Clock, Target, Users, Shield } from "lucide-react";
+import { Save, Bell, Clock, Target, Users, Shield, FileSpreadsheet, Play, Loader2 } from "lucide-react";
 import { fetchApi, postApi } from "@/lib/api";
 
 interface Intern {
@@ -37,6 +37,51 @@ export default function SettingsPage() {
     { key: "kpi", label: "KPI below target", description: "After 3 consecutive days below target", enabled: false },
     { key: "pending", label: "Pending leave reminder", description: "Leave request pending 24+ hours", enabled: true },
   ]);
+
+  const [importUrl, setImportUrl] = useState("");
+  const [importTime, setImportTime] = useState("18:30");
+  const [importEnabled, setImportEnabled] = useState(false);
+  const [importLastRun, setImportLastRun] = useState<string | null>(null);
+  const [importLastError, setImportLastError] = useState<string | null>(null);
+  const [importSaving, setImportSaving] = useState(false);
+  const [importTriggering, setImportTriggering] = useState(false);
+  const [importSaved, setImportSaved] = useState(false);
+
+  useEffect(() => {
+    fetchApi<{ url: string; time: string; enabled: boolean; lastRunAt?: string; lastError?: string }>(
+      "/scheduled-import",
+    ).then((cfg) => {
+      setImportUrl(cfg.url || "");
+      setImportTime(cfg.time || "18:30");
+      setImportEnabled(cfg.enabled ?? false);
+      setImportLastRun(cfg.lastRunAt ?? null);
+      setImportLastError(cfg.lastError ?? null);
+    }).catch(() => {});
+  }, []);
+
+  const saveImportConfig = async () => {
+    setImportSaving(true);
+    setImportSaved(false);
+    try {
+      await postApi("/scheduled-import", { url: importUrl, time: importTime, enabled: importEnabled });
+      setImportSaved(true);
+      setTimeout(() => setImportSaved(false), 2000);
+    } catch {}
+    setImportSaving(false);
+  };
+
+  const triggerImportNow = async () => {
+    setImportTriggering(true);
+    try {
+      const res = await postApi<any>("/scheduled-import/trigger", {});
+      if (res.error) setImportLastError(res.error);
+      else {
+        setImportLastError(null);
+        setImportLastRun(new Date().toISOString());
+      }
+    } catch {}
+    setImportTriggering(false);
+  };
 
   const now = new Date();
   const [rosterMonth] = useState(now.getMonth());
@@ -155,6 +200,99 @@ export default function SettingsPage() {
               </button>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Scheduled Auto-Import */}
+      <section className="bg-background border border-border rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border bg-muted/30">
+          <h3 className="font-semibold flex items-center gap-2.5 text-[15px]">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+              <FileSpreadsheet size={16} className="text-accent" />
+            </div>
+            Scheduled Excel Import
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1 ml-[42px]">
+            Auto-import call logs from a Google Sheet or Excel URL daily at the configured time.
+          </p>
+        </div>
+        <div className="p-6 space-y-5">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Google Sheet / Excel URL</label>
+            <input
+              type="url"
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              className="w-full px-3.5 py-2.5 border border-border rounded-xl text-sm bg-background focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Paste a public Google Sheet link or a direct .xlsx URL
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Import Time</label>
+              <input
+                type="time"
+                value={importTime}
+                onChange={(e) => setImportTime(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-border rounded-xl text-sm bg-background focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Daily auto-import time (server timezone)
+              </p>
+            </div>
+            <div className="flex items-center justify-between pt-6">
+              <div>
+                <p className="text-sm font-medium">Enable Auto-Import</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Run daily at scheduled time</p>
+              </div>
+              <button
+                onClick={() => setImportEnabled(!importEnabled)}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                  importEnabled ? "bg-accent" : "bg-neutral-200"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                    importEnabled ? "translate-x-[22px]" : "translate-x-[2px]"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {importLastRun && (
+            <p className="text-xs text-muted-foreground">
+              Last run: {new Date(importLastRun).toLocaleString()}
+            </p>
+          )}
+          {importLastError && (
+            <p className="text-xs text-red-500">
+              Last error: {importLastError}
+            </p>
+          )}
+
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={saveImportConfig}
+              disabled={importSaving}
+              className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-xl text-sm font-semibold hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {importSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {importSaved ? "Saved!" : "Save"}
+            </button>
+            <button
+              onClick={triggerImportNow}
+              disabled={importTriggering || !importUrl}
+              className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+            >
+              {importTriggering ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              Run Now
+            </button>
+          </div>
         </div>
       </section>
 
