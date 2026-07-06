@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchApi, postApi } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save, ExternalLink, FileSpreadsheet, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save, ExternalLink, FileSpreadsheet, Check, TrendingUp, TrendingDown, Users, UserCheck, UserX, Clock, BarChart3, Bell, Shield } from "lucide-react";
 import * as XLSX from "xlsx";
 
 type AttendanceStatus = "P" | "A" | "L" | "HD" | "AL" | "UL" | "CL" | "ND";
@@ -47,6 +47,11 @@ interface InternPreview {
   month: number;
   year: number;
   breakdown: Record<string, number>;
+  attendanceRate?: number;
+  expectedDays?: number;
+  presentDays?: number;
+  absentDays?: number;
+  maxConsecutiveAbsent?: number;
   compLeave: {
     earned: number;
     used: number;
@@ -70,6 +75,7 @@ export default function AttendancePage() {
   // Nothing hits the API until "Save Attendance" is clicked.
   const [pending, setPending] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"attendance" | "analytics">("attendance");
   const [showExport, setShowExport] = useState(false);
   const [exportTeam, setExportTeam] = useState<"all" | "ALPHA" | "CALL_CENTER">("all");
   const [exportRange, setExportRange] = useState<"current" | "selected" | "range">("current");
@@ -367,12 +373,109 @@ export default function AttendancePage() {
     return { day: d, date: `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}` };
   });
 
+  // ── Analytics computed from grid ──────────────────────────────────────────────
+  const totalInterns = data.grid.length;
+  const totalPresent = data.grid.reduce((s, i) => s + i.present, 0);
+  const totalAbsent = data.grid.reduce((s, i) => s + i.absent, 0);
+  const totalLate = data.grid.reduce((s, i) => s + i.late, 0);
+  const totalLeave = data.grid.reduce((s, i) => s + i.leave, 0);
+  const avgRate = totalInterns > 0
+    ? Math.round(data.grid.reduce((s, i) => s + i.attendanceRate, 0) / totalInterns)
+    : 0;
+
+  const alphaInterns = data.grid.filter((i) => i.team === "ALPHA");
+  const ccInterns = data.grid.filter((i) => i.team !== "ALPHA");
+  const alphaRate = alphaInterns.length > 0
+    ? Math.round(alphaInterns.reduce((s, i) => s + i.attendanceRate, 0) / alphaInterns.length)
+    : 0;
+  const ccRate = ccInterns.length > 0
+    ? Math.round(ccInterns.reduce((s, i) => s + i.attendanceRate, 0) / ccInterns.length)
+    : 0;
+
+  // Daily attendance heatmap
+  const dailyStats = days.map(({ date }) => {
+    let pCount = 0, aCount = 0, lCount = 0, total = 0;
+    for (const intern of data.grid) {
+      const s = intern.days[date];
+      if (!s) continue;
+      total++;
+      if (s === "P") pCount++;
+      else if (s === "A" || s === "UL") aCount++;
+      else if (s === "L") lCount++;
+    }
+    return { date, present: pCount, absent: aCount, late: lCount, total };
+  });
+
+  // Worst day (highest absent)
+  const worstDay = dailyStats.reduce((w, d) => d.absent > w.absent ? d : w, dailyStats[0]);
+  // Best day (highest present)
+  const bestDay = dailyStats.reduce((b, d) => d.present > b.present ? d : b, dailyStats[0]);
+
+  // Absence streaks per intern
+  const streakAlerts: Array<{ name: string; id: string; streak: number; team: string }> = [];
+  for (const intern of data.grid) {
+    let streak = 0, maxStreak = 0;
+    for (const { date } of days) {
+      const s = intern.days[date];
+      if (s === "A" || s === "UL") { streak++; maxStreak = Math.max(maxStreak, streak); }
+      else if (s) { streak = 0; }
+    }
+    if (maxStreak >= 2) streakAlerts.push({ name: intern.name, id: intern.id, streak: maxStreak, team: intern.team || "" });
+  }
+  streakAlerts.sort((a, b) => b.streak - a.streak);
+
+  // Pattern: Friday/Monday absences (gaming weekends)
+  const weekendGamers: Array<{ name: string; id: string; count: number }> = [];
+  for (const intern of data.grid) {
+    let friMon = 0;
+    for (const { date } of days) {
+      const s = intern.days[date];
+      if (s === "A" || s === "UL") {
+        const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
+        if (dow === 5 || dow === 1) friMon++;
+      }
+    }
+    if (friMon >= 2) weekendGamers.push({ name: intern.name, id: intern.id, count: friMon });
+  }
+  weekendGamers.sort((a, b) => b.count - a.count);
+
+  // CL overspent
+  const clOverspent = data.grid.filter((i) => i.clBalance < 0);
+
+  // Perfect attendance
+  const perfectAttendance = data.grid.filter((i) => i.attendanceRate === 100 && i.present > 0);
+
+  // Low attendance (below 70%)
+  const lowAttendance = data.grid
+    .filter((i) => i.attendanceRate < 70 && i.attendanceRate > 0)
+    .sort((a, b) => a.attendanceRate - b.attendanceRate);
+
+  // Chronic late (3+ late days)
+  const chronicLate = data.grid
+    .filter((i) => i.late >= 3)
+    .sort((a, b) => b.late - a.late);
+
+  // All alerts combined for priority panel
+  const alerts: Array<{ type: "critical" | "warning" | "info"; msg: string; id?: string }> = [];
+  for (const s of streakAlerts.slice(0, 5)) {
+    alerts.push({ type: "critical", msg: `${s.name} — ${s.streak} consecutive absent days`, id: s.id });
+  }
+  for (const w of weekendGamers.slice(0, 3)) {
+    alerts.push({ type: "warning", msg: `${w.name} — ${w.count}× absent on Fri/Mon (weekend pattern)`, id: w.id });
+  }
+  for (const c of clOverspent.slice(0, 3)) {
+    alerts.push({ type: "warning", msg: `${c.name} — CL overspent (balance: ${c.clBalance})`, id: c.id });
+  }
+  for (const l of chronicLate.slice(0, 3)) {
+    alerts.push({ type: "info", msg: `${l.name} — late ${l.late} days this month`, id: l.id });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Attendance Grid</h1>
-          <p className="text-muted-foreground text-sm mt-1">Monthly attendance view — {monthName} {year}</p>
+          <h1 className="text-2xl font-bold">Attendance</h1>
+          <p className="text-muted-foreground text-sm mt-1">{monthName} {year} — {totalInterns} active interns</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 border border-border rounded-lg">
@@ -394,20 +497,89 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 text-xs">
-        {Object.entries(statusColors).map(([code, cls]) => (
-          <div key={code} className="flex items-center gap-1.5">
-            <span className={`inline-block w-6 h-5 rounded text-center leading-5 text-[10px] font-medium border ${cls}`}>{code}</span>
-            <span className="text-muted-foreground">
-              {code === "P" && "Present"}{code === "A" && "Absent"}{code === "L" && "Late"}
-              {code === "HD" && "Half Day"}{code === "AL" && "Approved Leave"}
-              {code === "UL" && "Unapproved Leave"}{code === "CL" && "Comp Leave"}{code === "ND" && "No Duty"}
-            </span>
-          </div>
-        ))}
+      {/* ── Tabs ──────────────────────────────────────────────── */}
+      <div className="flex gap-1 bg-muted rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab("attendance")}
+          className={`px-5 py-2 text-sm font-medium rounded-md transition-colors ${
+            activeTab === "attendance" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Attendance
+        </button>
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`px-5 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+            activeTab === "analytics" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Analytics
+          {alerts.length > 0 && (
+            <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">{alerts.length}</span>
+          )}
+        </button>
       </div>
 
+      {/* ══════════════ ATTENDANCE TAB ══════════════ */}
+      {activeTab === "attendance" && (<>
+
+      {/* ── KPI Cards ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-background border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <BarChart3 size={14} />
+            <span className="text-xs">Avg Attendance</span>
+          </div>
+          <p className={`text-2xl font-bold ${avgRate >= 85 ? "text-emerald-600" : avgRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{avgRate}%</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{totalInterns} interns tracked</p>
+        </div>
+        <div className="bg-background border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <UserCheck size={14} />
+            <span className="text-xs">Total Present Days</span>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600">{totalPresent}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">across all interns</p>
+        </div>
+        <div className="bg-background border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <UserX size={14} />
+            <span className="text-xs">Total Absent</span>
+          </div>
+          <p className="text-2xl font-bold text-red-600">{totalAbsent}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{totalLeave} leave days</p>
+        </div>
+        <div className="bg-background border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <Clock size={14} />
+            <span className="text-xs">Late Arrivals</span>
+          </div>
+          <p className="text-2xl font-bold text-amber-600">{totalLate}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{chronicLate.length} chronic ({"≥"}3)</p>
+        </div>
+        <div className="bg-background border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <Shield size={14} />
+            <span className="text-xs">Perfect Attendance</span>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600">{perfectAttendance.length}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">100% rate this month</p>
+        </div>
+      </div>
+
+      {/* ── Attendance Grid (in attendance tab) ────────────────── */}
       <div className="bg-background border border-border rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <Users size={14} />
+            Monthly Grid
+          </h3>
+          <div className="flex flex-wrap gap-2 text-[10px]">
+            {Object.entries(statusColors).map(([code, cls]) => (
+              <span key={code} className={`inline-block px-1.5 py-0.5 rounded border font-medium ${cls}`}>{code}</span>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -483,6 +655,187 @@ export default function AttendancePage() {
           </table>
         </div>
       </div>
+
+      </>)}
+
+      {/* ══════════════ ANALYTICS TAB ══════════════ */}
+      {activeTab === "analytics" && (<>
+
+      {/* ── Team Comparison ───────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-background border border-border rounded-xl p-5">
+          <p className="text-xs font-medium text-muted-foreground mb-3">Team Comparison</p>
+          <div className="space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium">Alpha Team</span>
+                <span className={`text-sm font-bold ${alphaRate >= 85 ? "text-emerald-600" : alphaRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{alphaRate}%</span>
+              </div>
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${alphaRate >= 85 ? "bg-emerald-500" : alphaRate >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${alphaRate}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">{alphaInterns.length} interns</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium">Call Center</span>
+                <span className={`text-sm font-bold ${ccRate >= 85 ? "text-emerald-600" : ccRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{ccRate}%</span>
+              </div>
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${ccRate >= 85 ? "bg-emerald-500" : ccRate >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${ccRate}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">{ccInterns.length} interns</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Daily Presence Heatmap */}
+        <div className="bg-background border border-border rounded-xl p-5 lg:col-span-2">
+          <p className="text-xs font-medium text-muted-foreground mb-3">Daily Presence (this month)</p>
+          <div className="flex items-end gap-[2px] h-24">
+            {dailyStats.map((d) => {
+              const rate = d.total > 0 ? Math.round((d.present / d.total) * 100) : 0;
+              return (
+                <div
+                  key={d.date}
+                  className="flex-1 relative group"
+                  title={`Day ${d.date.split("-")[2]}: ${d.present}P / ${d.absent}A / ${d.late}L`}
+                >
+                  <div
+                    className={`w-full rounded-t transition-all ${
+                      rate >= 90 ? "bg-emerald-400" : rate >= 75 ? "bg-amber-400" : rate > 0 ? "bg-red-400" : "bg-neutral-200"
+                    }`}
+                    style={{ height: `${Math.max(rate, 4)}%` }}
+                  />
+                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:block bg-foreground text-background text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap z-10">
+                    {d.date.split("-")[2]}: {rate}%
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+            <span>1</span>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-400" />{"≥"}90%</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-400" />75-89%</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-red-400" />{"<"}75%</span>
+            </div>
+            <span>{data.daysInMonth}</span>
+          </div>
+          <div className="flex items-center gap-4 mt-3 text-xs">
+            {bestDay && bestDay.present > 0 && (
+              <span className="flex items-center gap-1.5 text-emerald-600">
+                <TrendingUp size={12} />
+                Best: Day {bestDay.date.split("-")[2]} ({bestDay.present} present)
+              </span>
+            )}
+            {worstDay && worstDay.absent > 0 && (
+              <span className="flex items-center gap-1.5 text-red-600">
+                <TrendingDown size={12} />
+                Worst: Day {worstDay.date.split("-")[2]} ({worstDay.absent} absent)
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Alerts Panel ──────────────────────────────────────── */}
+      {alerts.length > 0 && (
+        <div className="bg-background border border-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Bell size={16} className="text-red-500" />
+            <h3 className="font-semibold text-sm">Alerts & Pattern Detection</h3>
+            <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">{alerts.length}</span>
+          </div>
+          <div className="space-y-2">
+            {alerts.map((a, i) => (
+              <div
+                key={i}
+                onClick={() => a.id && openPreview(a.id)}
+                className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted/30 ${
+                  a.type === "critical" ? "border-red-200 bg-red-50/50" :
+                  a.type === "warning" ? "border-amber-200 bg-amber-50/50" :
+                  "border-blue-200 bg-blue-50/50"
+                }`}
+              >
+                <AlertTriangle size={14} className={`mt-0.5 shrink-0 ${
+                  a.type === "critical" ? "text-red-500" :
+                  a.type === "warning" ? "text-amber-500" :
+                  "text-blue-500"
+                }`} />
+                <div className="flex-1">
+                  <p className="text-sm">{a.msg}</p>
+                </div>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium uppercase ${
+                  a.type === "critical" ? "bg-red-100 text-red-700" :
+                  a.type === "warning" ? "bg-amber-100 text-amber-700" :
+                  "bg-blue-100 text-blue-700"
+                }`}>{a.type}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Bottom-performers & top-performers side by side ──── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Low attendance */}
+        {lowAttendance.length > 0 && (
+          <div className="bg-background border border-border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingDown size={14} className="text-red-500" />
+              <p className="text-xs font-semibold text-muted-foreground">Low Attendance ({"<"}70%)</p>
+            </div>
+            <div className="space-y-2">
+              {lowAttendance.slice(0, 8).map((intern) => (
+                <div
+                  key={intern.id}
+                  onClick={() => openPreview(intern.id)}
+                  className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      intern.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
+                    }`}>{intern.team === "ALPHA" ? "A" : "CC"}</span>
+                    <span className="text-sm font-medium">{intern.name}</span>
+                  </div>
+                  <span className="text-sm font-bold text-red-600">{intern.attendanceRate}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Perfect attendance */}
+        {perfectAttendance.length > 0 && (
+          <div className="bg-background border border-border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp size={14} className="text-emerald-500" />
+              <p className="text-xs font-semibold text-muted-foreground">Perfect Attendance (100%)</p>
+            </div>
+            <div className="space-y-2">
+              {perfectAttendance.slice(0, 8).map((intern) => (
+                <div
+                  key={intern.id}
+                  onClick={() => openPreview(intern.id)}
+                  className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      intern.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
+                    }`}>{intern.team === "ALPHA" ? "A" : "CC"}</span>
+                    <span className="text-sm font-medium">{intern.name}</span>
+                  </div>
+                  <span className="text-xs text-emerald-600 font-medium">{intern.present} days</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      </>)}
 
       {/* Unsaved-changes bar — one bulk API call on Save */}
       {pendingCount > 0 && (
@@ -757,6 +1110,29 @@ export default function AttendancePage() {
                   View full performance profile
                 </button>
 
+                {/* Attendance Rate Summary */}
+                {preview.attendanceRate !== undefined && (
+                  <div className={`rounded-xl border overflow-hidden ${
+                    preview.attendanceRate < 50 ? "border-red-300 bg-red-50" : preview.attendanceRate < 70 ? "border-amber-300 bg-amber-50" : "border-emerald-300 bg-emerald-50"
+                  }`}>
+                    <div className="px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Attendance Rate</p>
+                        <p className={`text-2xl font-bold ${
+                          preview.attendanceRate < 50 ? "text-red-600" : preview.attendanceRate < 70 ? "text-amber-600" : "text-emerald-600"
+                        }`}>
+                          {preview.attendanceRate}%
+                        </p>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        <p>{preview.presentDays}/{preview.expectedDays} days present</p>
+                        {(preview.absentDays ?? 0) > 0 && <p className="text-red-600 font-medium">{preview.absentDays} absent</p>}
+                        {(preview.maxConsecutiveAbsent ?? 0) > 0 && <p className="text-red-600">{preview.maxConsecutiveAbsent}d max streak</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Comp leave */}
                 <div className="rounded-xl border border-border overflow-hidden">
                   <div className="px-4 py-3 bg-muted/40 border-b border-border flex items-center gap-2">
@@ -825,12 +1201,20 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-semibold mb-2">Pattern flags</p>
                   {preview.flags.length === 0 ? (
-                    <p className="text-xs text-emerald-600">No concerning patterns detected.</p>
+                    preview.attendanceRate !== undefined && preview.attendanceRate >= 70 ? (
+                      <p className="text-xs text-emerald-600">No concerning patterns detected.</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No data available for pattern analysis.</p>
+                    )
                   ) : (
                     <ul className="space-y-1.5">
                       {preview.flags.map((f, i) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-red-600">
-                          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                        <li key={i} className={`flex items-start gap-2 text-xs ${
+                          f.startsWith("Critical") ? "text-red-700 font-medium" : "text-red-600"
+                        }`}>
+                          <AlertTriangle size={13} className={`mt-0.5 shrink-0 ${
+                            f.startsWith("Critical") ? "text-red-700" : "text-amber-600"
+                          }`} />
                           {f}
                         </li>
                       ))}

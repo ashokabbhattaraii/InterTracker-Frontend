@@ -12,6 +12,9 @@ import {
   TrendingUp,
   Award,
   Layers,
+  AlertTriangle,
+  AlertCircle,
+  Info,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { fetchApi, putApi } from "@/lib/api";
@@ -65,15 +68,43 @@ interface DashboardData {
   todayCalls: Array<{ id: string; name: string; team: string; callsMade: number; interested: number; tours: number }>;
 }
 
+interface AlertData {
+  id: string;
+  internId: string;
+  name: string;
+  team: string;
+  attendanceRate: number;
+  expectedDays: number;
+  presentDays: number;
+  absentDays: number;
+  maxConsecutiveAbsent: number;
+  severity: "critical" | "warning" | "info";
+  reasons: string[];
+}
+
+interface AlertsResponse {
+  month: number;
+  year: number;
+  totalAlerts: number;
+  critical: number;
+  warning: number;
+  alerts: AlertData[];
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [leaderboardView, setLeaderboardView] = useState<"all" | "alpha" | "cc">("all");
 
   useEffect(() => {
-    fetchApi<DashboardData>("/dashboard").then((d) => {
+    Promise.all([
+      fetchApi<DashboardData>("/dashboard"),
+      fetchApi<AlertsResponse>("/dashboard/alerts").catch(() => null),
+    ]).then(([d, a]) => {
       setData(d);
+      setAlerts(a);
       setLoading(false);
     });
   }, []);
@@ -162,6 +193,89 @@ export default function DashboardPage() {
           <p className="text-xs text-muted-foreground">awaiting approval</p>
         </div>
       </div>
+
+      {/* Alerts Section */}
+      {alerts && alerts.alerts.length > 0 && (
+        <div className="bg-background border border-border rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2">
+              <AlertTriangle size={16} className="text-danger" />
+              Intern Alerts
+              <span className="text-xs px-2 py-0.5 bg-danger/10 text-danger rounded-full font-medium">
+                {alerts.totalAlerts}
+              </span>
+            </h3>
+            <div className="flex items-center gap-2 text-xs">
+              {alerts.critical > 0 && (
+                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
+                  {alerts.critical} critical
+                </span>
+              )}
+              {alerts.warning > 0 && (
+                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">
+                  {alerts.warning} warning
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {alerts.alerts.slice(0, 8).map((alert) => (
+              <div
+                key={alert.id}
+                onClick={() => router.push(`/dashboard/interns/${alert.id}`)}
+                className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                  alert.severity === "critical"
+                    ? "bg-red-50 border border-red-200 hover:bg-red-100"
+                    : alert.severity === "warning"
+                    ? "bg-amber-50 border border-amber-200 hover:bg-amber-100"
+                    : "bg-blue-50 border border-blue-200 hover:bg-blue-100"
+                }`}
+              >
+                <div className={`mt-0.5 ${
+                  alert.severity === "critical" ? "text-red-600" : alert.severity === "warning" ? "text-amber-600" : "text-blue-600"
+                }`}>
+                  {alert.severity === "critical" ? <AlertCircle size={16} /> : alert.severity === "warning" ? <AlertTriangle size={16} /> : <Info size={16} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{alert.name}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      alert.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
+                    }`}>
+                      {alert.team === "ALPHA" ? "Alpha" : "CC"}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                      alert.attendanceRate < 50 ? "bg-red-200 text-red-800" : "bg-amber-200 text-amber-800"
+                    }`}>
+                      {alert.attendanceRate}%
+                    </span>
+                  </div>
+                  <div className="mt-1 space-y-0.5">
+                    {alert.reasons.map((reason, i) => (
+                      <p key={i} className={`text-xs ${
+                        alert.severity === "critical" ? "text-red-700" : alert.severity === "warning" ? "text-amber-700" : "text-blue-700"
+                      }`}>
+                        {reason}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-right text-xs text-muted-foreground whitespace-nowrap">
+                  <p>{alert.presentDays}/{alert.expectedDays} days</p>
+                  {alert.maxConsecutiveAbsent > 0 && (
+                    <p className="text-red-600 font-medium">{alert.maxConsecutiveAbsent}d streak</p>
+                  )}
+                </div>
+              </div>
+            ))}
+            {alerts.alerts.length > 8 && (
+              <p className="text-xs text-muted-foreground text-center pt-2">
+                +{alerts.alerts.length - 8} more alerts
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Leaderboard with team tabs */}
