@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { fetchApi, postApi } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save, ExternalLink } from "lucide-react";
 
 type AttendanceStatus = "P" | "A" | "L" | "HD" | "AL" | "UL" | "CL" | "ND";
 
@@ -56,6 +57,7 @@ interface InternPreview {
 }
 
 export default function AttendancePage() {
+  const router = useRouter();
   const [data, setData] = useState<GridData | null>(null);
   const [month, setMonth] = useState(6);
   const [year, setYear] = useState(2026);
@@ -314,7 +316,12 @@ export default function AttendancePage() {
               <div className="p-6 space-y-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-bold">{preview.intern.name}</h2>
+                    <h2
+                      onClick={() => { setPreview(null); router.push(`/dashboard/interns/${preview.intern.id}`); }}
+                      className="text-lg font-bold hover:underline cursor-pointer"
+                    >
+                      {preview.intern.name}
+                    </h2>
                     <p className="text-xs text-muted-foreground">
                       {preview.intern.internId} · {preview.intern.team}
                     </p>
@@ -323,6 +330,13 @@ export default function AttendancePage() {
                     <X size={16} />
                   </button>
                 </div>
+                <button
+                  onClick={() => { setPreview(null); router.push(`/dashboard/interns/${preview.intern.id}`); }}
+                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ExternalLink size={12} />
+                  View full performance profile
+                </button>
 
                 {/* Comp leave */}
                 <div className="rounded-xl border border-border overflow-hidden">

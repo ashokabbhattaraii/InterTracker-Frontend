@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   FileSpreadsheet,
   Upload,
@@ -122,6 +123,7 @@ function timeAgo(iso: string): string {
 }
 
 export default function ReportsPage() {
+  const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -728,7 +730,14 @@ export default function ReportsPage() {
               {displayData.map((item, i) => (
                 <tr key={item.intern.id} className="border-b border-border/50 hover:bg-muted/30">
                   <td className="px-4 py-3 text-muted-foreground">{i + 1}</td>
-                  <td className="px-4 py-3 font-medium">{item.intern.name}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      onClick={() => router.push(`/dashboard/interns/${item.intern.id}`)}
+                      className="font-medium hover:underline cursor-pointer"
+                    >
+                      {item.intern.name}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded ${
                       item.intern.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"

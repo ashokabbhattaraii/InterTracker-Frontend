@@ -13,6 +13,7 @@ import {
   Award,
   Layers,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { fetchApi, putApi } from "@/lib/api";
 
 interface DashboardData {
@@ -31,10 +32,11 @@ interface DashboardData {
     date: string;
     type: string;
     reason: string;
-    intern: { name: string };
+    intern: { id: string; name: string };
   }>;
-  notCheckedIn: Array<{ name: string; team: string }>;
+  notCheckedIn: Array<{ id: string; name: string; team: string }>;
   leaderboard: Array<{
+    id: string;
     name: string;
     internId: string;
     team: string;
@@ -43,6 +45,7 @@ interface DashboardData {
     interested: number;
   }>;
   alphaLeaderboard: Array<{
+    id: string;
     name: string;
     internId: string;
     team: string;
@@ -51,6 +54,7 @@ interface DashboardData {
     interested: number;
   }>;
   ccLeaderboard: Array<{
+    id: string;
     name: string;
     internId: string;
     team: string;
@@ -58,10 +62,11 @@ interface DashboardData {
     totalTours: number;
     interested: number;
   }>;
-  todayCalls: Array<{ name: string; team: string; callsMade: number; interested: number; tours: number }>;
+  todayCalls: Array<{ id: string; name: string; team: string; callsMade: number; interested: number; tours: number }>;
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [leaderboardView, setLeaderboardView] = useState<"all" | "alpha" | "cc">("all");
@@ -182,7 +187,11 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-2">
             {currentLeaderboard.slice(0, 8).map((item, i) => (
-              <div key={item.internId} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+              <div
+                key={item.internId}
+                onClick={() => router.push(`/dashboard/interns/${item.id}`)}
+                className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+              >
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                   i === 0 ? "bg-accent text-accent-foreground" : i === 1 ? "bg-neutral-300 text-neutral-700" : i === 2 ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"
                 }`}>
@@ -190,7 +199,7 @@ export default function DashboardPage() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-sm font-medium truncate hover:underline">{item.name}</p>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                       item.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
                     }`}>
@@ -221,7 +230,12 @@ export default function DashboardPage() {
               {data.pendingLeavesList.map((leave) => (
                 <div key={leave.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div>
-                    <p className="text-sm font-medium">{leave.intern.name}</p>
+                    <p
+                      onClick={() => router.push(`/dashboard/interns/${leave.intern.id}`)}
+                      className="text-sm font-medium hover:underline cursor-pointer"
+                    >
+                      {leave.intern.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {leave.date.split("T")[0]} — {leave.type} — {leave.reason || "No reason"}
                     </p>
@@ -256,12 +270,16 @@ export default function DashboardPage() {
           {data.notCheckedIn.length > 0 ? (
             <div className="space-y-2">
               {data.notCheckedIn.slice(0, 10).map((item) => (
-                <div key={item.name} className="flex items-center gap-3 p-3 bg-danger/5 border border-danger/10 rounded-lg">
+                <div
+                  key={item.id}
+                  onClick={() => router.push(`/dashboard/interns/${item.id}`)}
+                  className="flex items-center gap-3 p-3 bg-danger/5 border border-danger/10 rounded-lg cursor-pointer hover:bg-danger/10 transition-colors"
+                >
                   <div className="w-8 h-8 rounded-full bg-danger/10 flex items-center justify-center">
                     <UserX size={14} className="text-danger" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-medium">{item.name}</p>
+                    <p className="text-sm font-medium hover:underline">{item.name}</p>
                   </div>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                     item.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
@@ -287,10 +305,14 @@ export default function DashboardPage() {
           </h3>
           {data.todayCalls.length > 0 ? (
             <div className="space-y-2">
-              {data.todayCalls.map((log, i) => (
-                <div key={i} className="flex items-center justify-between p-2.5 text-sm rounded-lg hover:bg-muted/30">
+              {data.todayCalls.map((log) => (
+                <div
+                  key={log.id}
+                  onClick={() => router.push(`/dashboard/interns/${log.id}`)}
+                  className="flex items-center justify-between p-2.5 text-sm rounded-lg hover:bg-muted/30 cursor-pointer"
+                >
                   <div className="flex items-center gap-2">
-                    <span className="text-foreground font-medium">{log.name}</span>
+                    <span className="text-foreground font-medium hover:underline">{log.name}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                       log.team === "ALPHA" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
                     }`}>

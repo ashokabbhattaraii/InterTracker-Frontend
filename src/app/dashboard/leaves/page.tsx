@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Calendar, Check, X, Filter } from "lucide-react";
 import { fetchApi, putApi } from "@/lib/api";
 
@@ -16,6 +17,7 @@ interface LeaveRequest {
 }
 
 export default function LeavesPage() {
+  const router = useRouter();
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -107,7 +109,12 @@ export default function LeavesPage() {
                     {leave.intern.name.split(" ").map((n) => n[0]).join("")}
                   </div>
                   <div>
-                    <p className="font-medium text-sm">{leave.intern.name}</p>
+                    <p
+                      onClick={() => router.push(`/dashboard/interns/${leave.intern.id}`)}
+                      className="font-medium text-sm hover:underline cursor-pointer"
+                    >
+                      {leave.intern.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {leave.date.split("T")[0]} · {leave.type} · Applied {leave.appliedOn.split("T")[0]}
                     </p>

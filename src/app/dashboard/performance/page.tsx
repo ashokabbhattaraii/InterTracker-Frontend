@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Phone,
   TrendingUp,
@@ -100,6 +101,7 @@ interface MonthlyResponse {
 }
 
 export default function PerformancePage() {
+  const router = useRouter();
   const [view, setView] = useState<"weekly" | "monthly">("weekly");
   const [weeklyData, setWeeklyData] = useState<WeeklyResponse | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyResponse | null>(null);
@@ -383,7 +385,12 @@ export default function PerformancePage() {
                               <span className="text-xs text-muted-foreground w-5">
                                 {i + 1}
                               </span>
-                              <span className="font-medium">{intern.name}</span>
+                              <span
+                                onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
+                                className="font-medium hover:underline cursor-pointer"
+                              >
+                                {intern.name}
+                              </span>
                             </div>
                           </td>
                           <td className="px-3 py-3 text-center">
@@ -615,7 +622,10 @@ export default function PerformancePage() {
                                   <span className="text-xs text-muted-foreground w-5">
                                     {i + 1}
                                   </span>
-                                  <span className="font-medium">
+                                  <span
+                                    onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
+                                    className="font-medium hover:underline cursor-pointer"
+                                  >
                                     {intern.name}
                                   </span>
                                 </div>
