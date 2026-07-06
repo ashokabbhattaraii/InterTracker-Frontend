@@ -378,17 +378,15 @@ export default function PerformancePage() {
                       {week.interns.map((intern, i) => (
                         <tr
                           key={intern.id}
-                          className="border-t border-border/50 hover:bg-muted/20"
+                          onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
+                          className="border-t border-border/50 hover:bg-muted/20 cursor-pointer"
                         >
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground w-5">
                                 {i + 1}
                               </span>
-                              <span
-                                onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
-                                className="font-medium hover:underline cursor-pointer"
-                              >
+                              <span className="font-medium hover:underline">
                                 {intern.name}
                               </span>
                             </div>
@@ -615,17 +613,15 @@ export default function PerformancePage() {
                           {month.interns.map((intern, i) => (
                             <tr
                               key={intern.id}
-                              className="border-t border-border/50 hover:bg-muted/20"
+                              onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
+                              className="border-t border-border/50 hover:bg-muted/20 cursor-pointer"
                             >
                               <td className="px-5 py-3">
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs text-muted-foreground w-5">
                                     {i + 1}
                                   </span>
-                                  <span
-                                    onClick={() => router.push(`/dashboard/interns/${intern.id}`)}
-                                    className="font-medium hover:underline cursor-pointer"
-                                  >
+                                  <span className="font-medium hover:underline">
                                     {intern.name}
                                   </span>
                                 </div>
