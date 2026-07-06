@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchApi, postApi } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X, Gift, AlertTriangle, Save, ExternalLink, FileSpreadsheet, Check } from "lucide-react";
+import * as XLSX from "xlsx";
 
 type AttendanceStatus = "P" | "A" | "L" | "HD" | "AL" | "UL" | "CL" | "ND";
 
@@ -69,6 +70,20 @@ export default function AttendancePage() {
   // Nothing hits the API until "Save Attendance" is clicked.
   const [pending, setPending] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [exportTeam, setExportTeam] = useState<"all" | "ALPHA" | "CALL_CENTER">("all");
+  const [exportRange, setExportRange] = useState<"current" | "selected" | "range">("current");
+  const [exportFromMonth, setExportFromMonth] = useState(month);
+  const [exportFromYear, setExportFromYear] = useState(year);
+  const [exportToMonth, setExportToMonth] = useState(month);
+  const [exportToYear, setExportToYear] = useState(year);
+  const [exporting, setExporting] = useState(false);
+  const [exportSheets, setExportSheets] = useState({
+    grid: true,
+    summary: true,
+    teamwise: true,
+    compLeave: true,
+  });
 
   const loadData = () => {
     setLoading(true);
@@ -78,7 +93,14 @@ export default function AttendancePage() {
     });
   };
 
-  useEffect(() => { setPending({}); loadData(); }, [month, year]);
+  useEffect(() => {
+    setPending({});
+    loadData();
+    setExportFromMonth(month);
+    setExportFromYear(year);
+    setExportToMonth(month);
+    setExportToYear(year);
+  }, [month, year]);
 
   const openPreview = (internDbId: string) => {
     setPreviewLoading(true);
@@ -125,6 +147,201 @@ export default function AttendancePage() {
     }
   };
 
+  const getMonthsToExport = (): Array<{ m: number; y: number }> => {
+    if (exportRange === "current") return [{ m: month, y: year }];
+    if (exportRange === "selected") return [{ m: month, y: year }];
+    const months: Array<{ m: number; y: number }> = [];
+    let cm = exportFromMonth, cy = exportFromYear;
+    while (cy < exportToYear || (cy === exportToYear && cm <= exportToMonth)) {
+      months.push({ m: cm, y: cy });
+      if (cm === 12) { cm = 1; cy++; } else { cm++; }
+    }
+    return months;
+  };
+
+  const exportToExcel = async () => {
+    setExporting(true);
+    try {
+      const monthsToExport = getMonthsToExport();
+
+      const allGrids: Array<GridData & { m: number; y: number }> = [];
+      const failedMonths: string[] = [];
+
+      for (const { m, y } of monthsToExport) {
+        try {
+          const d = await fetchApi<GridData>(`/attendance?month=${m}&year=${y}`);
+          allGrids.push({ ...d, m, y });
+        } catch {
+          const mName = new Date(y, m - 1).toLocaleString("default", { month: "short" });
+          failedMonths.push(`${mName} ${y}`);
+        }
+      }
+
+      if (allGrids.length === 0) {
+        setWarning(`Export failed — could not fetch data for ${failedMonths.join(", ")}. Check your connection.`);
+        setTimeout(() => setWarning(null), 6000);
+        setExporting(false);
+        return;
+      }
+
+      if (failedMonths.length > 0) {
+        setWarning(`Skipped ${failedMonths.join(", ")} (server error). Exported available months.`);
+        setTimeout(() => setWarning(null), 6000);
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      for (const gridData of allGrids) {
+        const mName = new Date(gridData.y, gridData.m - 1).toLocaleString("default", { month: "short" });
+        const sheetSuffix = monthsToExport.length > 1 ? ` ${mName} ${gridData.y}` : "";
+
+        const filteredGrid = exportTeam === "all"
+          ? gridData.grid
+          : gridData.grid.filter((i) =>
+              exportTeam === "ALPHA" ? i.team === "ALPHA" : i.team !== "ALPHA"
+            );
+
+        const daysList = Array.from({ length: gridData.daysInMonth }, (_, i) => i + 1);
+
+        if (exportSheets.grid) {
+          const headers = ["#", "Name", "ID", "Team", ...daysList.map(String), "Present", "Absent", "Late", "Leave", "Rate %"];
+          const rows = filteredGrid.map((intern, idx) => {
+            const statuses = daysList.map((d) => {
+              const date = `${gridData.y}-${String(gridData.m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              return intern.days[date] || "";
+            });
+            return [
+              idx + 1, intern.name, intern.internId, intern.team || "",
+              ...statuses,
+              intern.present, intern.absent, intern.late, intern.leave, intern.attendanceRate,
+            ];
+          });
+          const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+          ws["!cols"] = [
+            { wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 12 },
+            ...daysList.map(() => ({ wch: 4 })),
+            { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 6 }, { wch: 8 },
+          ];
+          const name = `Grid${sheetSuffix}`.slice(0, 31);
+          XLSX.utils.book_append_sheet(wb, ws, name);
+        }
+
+        if (exportSheets.teamwise) {
+          const teams = [
+            { key: "ALPHA", label: "Alpha" },
+            { key: "CALL_CENTER", label: "CC" },
+          ];
+          for (const { key, label } of teams) {
+            if (exportTeam !== "all" && exportTeam !== key) continue;
+            const teamInterns = gridData.grid.filter((i) =>
+              key === "ALPHA" ? i.team === "ALPHA" : i.team !== "ALPHA"
+            );
+            if (teamInterns.length === 0) continue;
+            const headers = ["#", "Name", "ID", ...daysList.map(String), "Present", "Absent", "Rate %"];
+            const rows = teamInterns.map((intern, idx) => {
+              const statuses = daysList.map((d) => {
+                const date = `${gridData.y}-${String(gridData.m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+                return intern.days[date] || "";
+              });
+              return [idx + 1, intern.name, intern.internId, ...statuses, intern.present, intern.absent, intern.attendanceRate];
+            });
+            const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+            ws["!cols"] = [
+              { wch: 4 }, { wch: 22 }, { wch: 12 },
+              ...daysList.map(() => ({ wch: 4 })),
+              { wch: 8 }, { wch: 8 }, { wch: 8 },
+            ];
+            const name = `${label}${sheetSuffix}`.slice(0, 31);
+            XLSX.utils.book_append_sheet(wb, ws, name);
+          }
+        }
+      }
+
+      if (exportSheets.summary) {
+        const summaryHeaders = ["#", "Name", "ID", "Team", "Month", "Present", "Absent", "Late", "Leave", "Attendance %", "CL Earned", "CL Used", "CL Balance"];
+        const summaryRows: (string | number)[][] = [];
+        let idx = 0;
+        for (const gridData of allGrids) {
+          const mName = new Date(gridData.y, gridData.m - 1).toLocaleString("default", { month: "short" });
+          const filteredGrid = exportTeam === "all"
+            ? gridData.grid
+            : gridData.grid.filter((i) =>
+                exportTeam === "ALPHA" ? i.team === "ALPHA" : i.team !== "ALPHA"
+              );
+          for (const intern of filteredGrid) {
+            idx++;
+            summaryRows.push([
+              idx, intern.name, intern.internId, intern.team || "",
+              `${mName} ${gridData.y}`,
+              intern.present, intern.absent, intern.late, intern.leave, intern.attendanceRate,
+              intern.clEarned, intern.clUsed, intern.clBalance,
+            ]);
+          }
+        }
+        const totalPresent = summaryRows.reduce((s, r) => s + (r[5] as number), 0);
+        const totalAbsent = summaryRows.reduce((s, r) => s + (r[6] as number), 0);
+        const totalLate = summaryRows.reduce((s, r) => s + (r[7] as number), 0);
+        const totalLeave = summaryRows.reduce((s, r) => s + (r[8] as number), 0);
+        const avgRate = summaryRows.length > 0
+          ? Math.round(summaryRows.reduce((s, r) => s + (r[9] as number), 0) / summaryRows.length)
+          : 0;
+        summaryRows.push([
+          "", "TOTAL", "", "", "",
+          totalPresent, totalAbsent, totalLate, totalLeave, avgRate,
+          summaryRows.reduce((s, r) => s + (r[10] as number), 0),
+          summaryRows.reduce((s, r) => s + (r[11] as number), 0),
+          summaryRows.reduce((s, r) => s + (r[12] as number), 0),
+        ]);
+        const ws = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
+        ws["!cols"] = [
+          { wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+          { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 6 }, { wch: 12 },
+          { wch: 10 }, { wch: 10 }, { wch: 10 },
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, "Summary");
+      }
+
+      if (exportSheets.compLeave) {
+        const lastGrid = allGrids[allGrids.length - 1];
+        const filteredGrid = exportTeam === "all"
+          ? lastGrid.grid
+          : lastGrid.grid.filter((i) =>
+              exportTeam === "ALPHA" ? i.team === "ALPHA" : i.team !== "ALPHA"
+            );
+        const clHeaders = ["#", "Name", "ID", "Team", "CL Earned", "CL Used", "CL Balance", "Status"];
+        const clRows = filteredGrid.map((intern, idx) => [
+          idx + 1, intern.name, intern.internId, intern.team || "",
+          intern.clEarned, intern.clUsed, intern.clBalance,
+          intern.clBalance < 0 ? "OVERSPENT" : intern.clBalance > 0 ? "Available" : "Zero",
+        ]);
+        const ws = XLSX.utils.aoa_to_sheet([clHeaders, ...clRows]);
+        ws["!cols"] = [
+          { wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 12 },
+          { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, "Comp Leave");
+      }
+
+      const monthsToExp = getMonthsToExport();
+      let fileName: string;
+      if (monthsToExp.length === 1) {
+        const mName = new Date(monthsToExp[0].y, monthsToExp[0].m - 1).toLocaleString("default", { month: "long" });
+        fileName = `Attendance_${mName}_${monthsToExp[0].y}`;
+      } else {
+        const fromName = new Date(monthsToExp[0].y, monthsToExp[0].m - 1).toLocaleString("default", { month: "short" });
+        const toName = new Date(monthsToExp[monthsToExp.length - 1].y, monthsToExp[monthsToExp.length - 1].m - 1).toLocaleString("default", { month: "short" });
+        fileName = `Attendance_${fromName}-${toName}_${monthsToExp[0].y}${monthsToExp[monthsToExp.length - 1].y !== monthsToExp[0].y ? `-${monthsToExp[monthsToExp.length - 1].y}` : ""}`;
+      }
+      if (exportTeam !== "all") fileName += `_${exportTeam}`;
+      fileName += ".xlsx";
+
+      XLSX.writeFile(wb, fileName);
+      setShowExport(false);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const prevMonth = () => {
     if (month === 1) { setMonth(12); setYear(year - 1); }
     else setMonth(month - 1);
@@ -167,7 +384,10 @@ export default function AttendancePage() {
               <ChevronRight size={16} />
             </button>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors">
+          <button
+            onClick={() => setShowExport(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors"
+          >
             <Download size={14} />
             Export
           </button>
@@ -297,6 +517,205 @@ export default function AttendancePage() {
         <div className="fixed bottom-6 right-6 z-50 flex items-start gap-2.5 max-w-sm px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl shadow-lg">
           <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
           <p className="text-xs text-amber-800">{warning}</p>
+        </div>
+      )}
+
+      {/* Export modal */}
+      {showExport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowExport(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div
+            className="relative bg-background rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <FileSpreadsheet size={18} className="text-emerald-600" />
+                <h3 className="font-bold text-lg">Export Attendance</h3>
+              </div>
+              <button onClick={() => setShowExport(false)} className="p-1.5 hover:bg-muted rounded-lg">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Date range selection */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Date Range</p>
+              <div className="flex gap-1 bg-muted rounded-lg p-1 mb-3">
+                {([["current", "Current Month"], ["selected", "Selected Month"], ["range", "From — To"]] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setExportRange(key as typeof exportRange)}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      exportRange === key ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {exportRange === "current" && (
+                <p className="text-sm text-muted-foreground px-1">
+                  Exporting <span className="font-medium text-foreground">{monthName} {year}</span> (current view)
+                </p>
+              )}
+
+              {exportRange === "selected" && (
+                <div className="flex items-center gap-2 px-1">
+                  <select
+                    value={month}
+                    disabled
+                    className="text-sm border border-border rounded-lg px-3 py-2 bg-muted"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i} value={i + 1}>
+                        {new Date(2000, i).toLocaleString("default", { month: "long" })}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={year}
+                    disabled
+                    className="text-sm border border-border rounded-lg px-3 py-2 bg-muted"
+                  >
+                    <option value={year}>{year}</option>
+                  </select>
+                  <span className="text-xs text-muted-foreground ml-1">(uses current page selection)</span>
+                </div>
+              )}
+
+              {exportRange === "range" && (
+                <div className="space-y-3 px-1">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-10">From</span>
+                    <select
+                      value={exportFromMonth}
+                      onChange={(e) => setExportFromMonth(Number(e.target.value))}
+                      className="text-sm border border-border rounded-lg px-3 py-2 bg-background flex-1"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i} value={i + 1}>
+                          {new Date(2000, i).toLocaleString("default", { month: "long" })}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={exportFromYear}
+                      onChange={(e) => setExportFromYear(Number(e.target.value))}
+                      className="text-sm border border-border rounded-lg px-3 py-2 bg-background w-24"
+                    >
+                      {[2025, 2026, 2027].map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-10">To</span>
+                    <select
+                      value={exportToMonth}
+                      onChange={(e) => setExportToMonth(Number(e.target.value))}
+                      className="text-sm border border-border rounded-lg px-3 py-2 bg-background flex-1"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i} value={i + 1}>
+                          {new Date(2000, i).toLocaleString("default", { month: "long" })}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={exportToYear}
+                      onChange={(e) => setExportToYear(Number(e.target.value))}
+                      className="text-sm border border-border rounded-lg px-3 py-2 bg-background w-24"
+                    >
+                      {[2025, 2026, 2027].map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {(() => {
+                      const months = getMonthsToExport();
+                      return months.length > 0
+                        ? `${months.length} month${months.length > 1 ? "s" : ""} — each month gets its own grid sheet`
+                        : "Invalid range (from must be before to)";
+                    })()}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Team filter */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Team</p>
+              <div className="flex gap-1 bg-muted rounded-lg p-1">
+                {([["all", "All Teams"], ["ALPHA", "Alpha"], ["CALL_CENTER", "Call Center"]] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setExportTeam(key as typeof exportTeam)}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      exportTeam === key ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sheet selection */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Sheets to include</p>
+              <div className="space-y-2">
+                {([
+                  ["grid", "Attendance Grid", "Full day-by-day grid with status codes (one per month)"],
+                  ["summary", "Summary", "Consolidated stats per intern across all selected months"],
+                  ["teamwise", "Team-wise Sheets", "Separate sheet for Alpha & Call Center (one per month)"],
+                  ["compLeave", "Comp Leave", "Comp leave earned, used, and balance breakdown"],
+                ] as const).map(([key, label, desc]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setExportSheets((s) => ({ ...s, [key]: !s[key] }))}
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all text-left w-full ${
+                      exportSheets[key] ? "border-accent bg-accent/5" : "border-border hover:border-neutral-400"
+                    }`}
+                  >
+                    <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center shrink-0 transition-colors ${
+                      exportSheets[key] ? "bg-accent text-accent-foreground" : "border border-border"
+                    }`}>
+                      {exportSheets[key] && <Check size={12} />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Export button */}
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-muted-foreground">
+                {getMonthsToExport().length} month{getMonthsToExport().length !== 1 ? "s" : ""}
+                {" · "}
+                {Object.values(exportSheets).filter(Boolean).length} sheet type{Object.values(exportSheets).filter(Boolean).length !== 1 ? "s" : ""}
+              </p>
+              <button
+                onClick={exportToExcel}
+                disabled={!Object.values(exportSheets).some(Boolean) || exporting || getMonthsToExport().length === 0}
+                className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {exporting ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+                {exporting ? "Exporting…" : "Export .xlsx"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
