@@ -71,6 +71,7 @@ export default function AttendancePage() {
   const [preview, setPreview] = useState<InternPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  const [minAttRate, setMinAttRate] = useState(85);
   // Unsaved edits, keyed `${internDbId}|${date}` → new status ("" = clear).
   // Nothing hits the API until "Save Attendance" is clicked.
   const [pending, setPending] = useState<Record<string, string>>({});
@@ -93,8 +94,12 @@ export default function AttendancePage() {
 
   const loadData = () => {
     setLoading(true);
-    fetchApi<GridData>(`/attendance?month=${month}&year=${year}`).then((d) => {
+    Promise.all([
+      fetchApi<GridData>(`/attendance?month=${month}&year=${year}`),
+      fetchApi<{ kpiTargets: { minAttendanceRate: number } }>("/settings").catch(() => null),
+    ]).then(([d, s]) => {
       setData(d);
+      if (s) setMinAttRate(s.kpiTargets.minAttendanceRate);
       setLoading(false);
     });
   };
@@ -447,7 +452,7 @@ export default function AttendancePage() {
 
   // Low attendance (below 70%)
   const lowAttendance = data.grid
-    .filter((i) => i.attendanceRate < 70 && i.attendanceRate > 0)
+    .filter((i) => i.attendanceRate < minAttRate && i.attendanceRate > 0)
     .sort((a, b) => a.attendanceRate - b.attendanceRate);
 
   // Chronic late (3+ late days)
@@ -530,7 +535,7 @@ export default function AttendancePage() {
             <BarChart3 size={14} />
             <span className="text-xs">Avg Attendance</span>
           </div>
-          <p className={`text-2xl font-bold ${avgRate >= 85 ? "text-emerald-600" : avgRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{avgRate}%</p>
+          <p className={`text-2xl font-bold ${avgRate >= minAttRate ? "text-emerald-600" : avgRate >= minAttRate - 15 ? "text-amber-600" : "text-red-600"}`}>{avgRate}%</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{totalInterns} interns tracked</p>
         </div>
         <div className="bg-background border border-border rounded-xl p-4">
@@ -669,20 +674,20 @@ export default function AttendancePage() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium">Alpha Team</span>
-                <span className={`text-sm font-bold ${alphaRate >= 85 ? "text-emerald-600" : alphaRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{alphaRate}%</span>
+                <span className={`text-sm font-bold ${alphaRate >= minAttRate ? "text-emerald-600" : alphaRate >= minAttRate - 15 ? "text-amber-600" : "text-red-600"}`}>{alphaRate}%</span>
               </div>
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                <div className={`h-full rounded-full ${alphaRate >= 85 ? "bg-emerald-500" : alphaRate >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${alphaRate}%` }} />
+                <div className={`h-full rounded-full ${alphaRate >= minAttRate ? "bg-emerald-500" : alphaRate >= minAttRate - 15 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${alphaRate}%` }} />
               </div>
               <p className="text-[10px] text-muted-foreground mt-1">{alphaInterns.length} interns</p>
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium">Call Center</span>
-                <span className={`text-sm font-bold ${ccRate >= 85 ? "text-emerald-600" : ccRate >= 70 ? "text-amber-600" : "text-red-600"}`}>{ccRate}%</span>
+                <span className={`text-sm font-bold ${ccRate >= minAttRate ? "text-emerald-600" : ccRate >= minAttRate - 15 ? "text-amber-600" : "text-red-600"}`}>{ccRate}%</span>
               </div>
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                <div className={`h-full rounded-full ${ccRate >= 85 ? "bg-emerald-500" : ccRate >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${ccRate}%` }} />
+                <div className={`h-full rounded-full ${ccRate >= minAttRate ? "bg-emerald-500" : ccRate >= minAttRate - 15 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${ccRate}%` }} />
               </div>
               <p className="text-[10px] text-muted-foreground mt-1">{ccInterns.length} interns</p>
             </div>
@@ -1113,13 +1118,13 @@ export default function AttendancePage() {
                 {/* Attendance Rate Summary */}
                 {preview.attendanceRate !== undefined && (
                   <div className={`rounded-xl border overflow-hidden ${
-                    preview.attendanceRate < 50 ? "border-red-300 bg-red-50" : preview.attendanceRate < 70 ? "border-amber-300 bg-amber-50" : "border-emerald-300 bg-emerald-50"
+                    preview.attendanceRate < minAttRate - 35 ? "border-red-300 bg-red-50" : preview.attendanceRate < minAttRate ? "border-amber-300 bg-amber-50" : "border-emerald-300 bg-emerald-50"
                   }`}>
                     <div className="px-4 py-3 flex items-center justify-between">
                       <div>
                         <p className="text-xs text-muted-foreground">Attendance Rate</p>
                         <p className={`text-2xl font-bold ${
-                          preview.attendanceRate < 50 ? "text-red-600" : preview.attendanceRate < 70 ? "text-amber-600" : "text-emerald-600"
+                          preview.attendanceRate < minAttRate - 35 ? "text-red-600" : preview.attendanceRate < minAttRate ? "text-amber-600" : "text-emerald-600"
                         }`}>
                           {preview.attendanceRate}%
                         </p>
@@ -1201,7 +1206,7 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-semibold mb-2">Pattern flags</p>
                   {preview.flags.length === 0 ? (
-                    preview.attendanceRate !== undefined && preview.attendanceRate >= 70 ? (
+                    preview.attendanceRate !== undefined && preview.attendanceRate >= minAttRate ? (
                       <p className="text-xs text-emerald-600">No concerning patterns detected.</p>
                     ) : (
                       <p className="text-xs text-muted-foreground">No data available for pattern analysis.</p>
